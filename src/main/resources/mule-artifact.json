@@ -1,0 +1,23 @@
+{
+  "minMuleVersion": "4.4.0",
+  "secureProperties": [],
+  "configs": [
+    "netto-api-gateway.xml",
+    "experience-api.xml",
+    "process-api.xml",
+    "system-api.xml"
+  ],
+  "redeploymentEnabled": true,
+  "name": "netto-api-gateway",
+  "requiredProduct": "MULE_EE",
+  "classLoaderModelLoaderDescriptor": {
+    "id": "mule",
+    "attributes": {
+      "exportedResources": []
+    }
+  },
+  "bundleDescriptorLoader": {
+    "id": "mule",
+    "attributes": {}
+  }
+}

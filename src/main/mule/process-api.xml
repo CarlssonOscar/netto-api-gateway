@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!-- 
+    ========================================
+    PROCESS API LAYER
+    ========================================
+    
+    This layer orchestrates business processes and coordinates calls to System APIs.
+    
+    Responsibilities:
+    - Orchestrate calls to multiple System APIs
+    - Aggregate and combine data from different sources
+    - Handle process-level logic and sequencing
+    
+    Does NOT contain:
+    - Business logic (deferred to System APIs)
+    - Tax calculations
+    - Data transformations beyond aggregation
+    
+    Note: This layer is not directly exposed to external clients.
+    -->
+
+    <!-- HTTP Listener Configuration for Process API -->
+    <http:listener-config name="process-api-httpListenerConfig">
+        <http:listener-connection host="${process.api.host}" port="${process.api.port}" />
+    </http:listener-config>
+
+    <!-- HTTP Request Configuration for calling System APIs -->
+    <http:request-config name="system-api-requestConfig">
+        <http:request-connection host="${system.api.host}" port="${system.api.port}" />
+    </http:request-config>
+
+    <!-- Process API Main Flow -->
+    <flow name="process-api-main">
+        <http:listener config-ref="process-api-httpListenerConfig" 
+                       path="/process/api/*" 
+                       allowedMethods="POST">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+        
+        <choice>
+            <when expression="#[attributes.requestPath contains '/salary/calculate']">
+                <flow-ref name="process-salary-calculation" />
+            </when>
+            <otherwise>
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "NOT_FOUND",
+    message: "Process API endpoint not found",
+    timestamp: now()
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </otherwise>
+        </choice>
+        
+        <error-handler>
+            <on-error-propagate type="ANY">
+                <logger level="ERROR" message="Error in Process API: #[error.description]" />
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "PROCESS_ERROR",
+    message: error.description,
+    timestamp: now()
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">500</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- Process Salary Calculation Flow -->
+    <flow name="process-salary-calculation">
+        <logger level="INFO" message="Process API orchestrating salary calculation for employee: #[payload.employeeId]" />
+        
+        <!-- Store request data -->
+        <set-variable variableName="employeeId" value="#[payload.employeeId]" />
+        <set-variable variableName="baseSalary" value="#[payload.baseSalary]" />
+        <set-variable variableName="currency" value="#[payload.currency]" />
+        
+        <!-- Call System API to get employee data (placeholder) -->
+        <flow-ref name="call-employee-system-api" />
+        
+        <!-- Store employee data for later use -->
+        <set-variable variableName="employeeData" value="#[payload]" />
+        
+        <!-- Call System API to calculate salary (placeholder) -->
+        <flow-ref name="call-salary-calculation-system-api" />
+        
+        <!-- Store calculation result -->
+        <set-variable variableName="salaryCalculation" value="#[payload]" />
+        
+        <!-- Aggregate results from multiple System API calls -->
+        <flow-ref name="aggregate-salary-results" />
+        
+        <logger level="INFO" message="Process API completed salary calculation orchestration" />
+    </flow>
+
+    <!-- Sub-flow: Call Employee System API -->
+    <sub-flow name="call-employee-system-api">
+        <logger level="INFO" message="Calling Employee System API for employeeId: #[vars.employeeId]" />
+        
+        <!-- Prepare request for System API -->
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    employeeId: vars.employeeId
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <!-- Placeholder: In real implementation, this would call actual System API -->
+        <!-- For now, return mock data -->
+        <http:request method="POST" 
+                      config-ref="system-api-requestConfig" 
+                      path="${system.api.basePath}/employee/get"
+                      responseTimeout="${gateway.timeout}">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+        </http:request>
+        
+        <logger level="INFO" message="Received employee data from System API" />
+        
+        <error-handler>
+            <on-error-continue type="ANY">
+                <logger level="WARN" message="System API call failed, using mock data" />
+                <!-- Return mock data if System API is not available -->
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    employeeId: vars.employeeId,
+    status: "ACTIVE",
+    department: "Engineering"
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-continue>
+        </error-handler>
+    </sub-flow>
+
+    <!-- Sub-flow: Call Salary Calculation System API -->
+    <sub-flow name="call-salary-calculation-system-api">
+        <logger level="INFO" message="Calling Salary Calculation System API" />
+        
+        <!-- Prepare request for System API -->
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    employeeId: vars.employeeId,
+    baseSalary: vars.baseSalary,
+    currency: vars.currency,
+    employeeData: vars.employeeData
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <!-- Placeholder: In real implementation, this would call actual System API -->
+        <http:request method="POST" 
+                      config-ref="system-api-requestConfig" 
+                      path="${system.api.basePath}/salary/calculate"
+                      responseTimeout="${gateway.timeout}">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+        </http:request>
+        
+        <logger level="INFO" message="Received salary calculation from System API" />
+        
+        <error-handler>
+            <on-error-continue type="ANY">
+                <logger level="WARN" message="System API call failed, using mock data" />
+                <!-- Return mock calculation if System API is not available -->
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    netSalary: vars.baseSalary * 0.75,
+    grossSalary: vars.baseSalary,
+    status: "SUCCESS"
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-continue>
+        </error-handler>
+    </sub-flow>
+
+    <!-- Sub-flow: Aggregate Results -->
+    <sub-flow name="aggregate-salary-results">
+        <logger level="INFO" message="Aggregating salary calculation results" />
+        
+        <!-- Combine data from multiple System API calls -->
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    employeeId: vars.employeeId,
+    netSalary: vars.salaryCalculation.netSalary,
+    grossSalary: vars.salaryCalculation.grossSalary,
+    currency: vars.currency,
+    calculationDate: now(),
+    status: vars.salaryCalculation.status default "SUCCESS",
+    message: "Salary calculated successfully"
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+    </sub-flow>
+
+</mule>

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+
+    <!-- 
+    ========================================
+    NETTO API GATEWAY - MAIN CONFIGURATION
+    ========================================
+    
+    This MuleSoft API Gateway implements a three-tier architecture:
+    
+    1. EXPERIENCE API (Gateway Layer) - Port 8081
+       - Public entry point for external clients
+       - Request validation using RAML
+       - Response transformation
+       - Routing to Process API
+    
+    2. PROCESS API (Orchestration Layer) - Port 8082
+       - Orchestrates business processes
+       - Aggregates data from multiple System APIs
+       - NOT directly accessible from external clients
+    
+    3. SYSTEM API (Integration Layer) - Port 8083
+       - Provides placeholders for backend system integration
+       - Abstracts backend complexity
+       - NOT directly accessible from external clients
+    
+    Gateway Responsibilities:
+    - Request validation
+    - Response transformation
+    - Routing
+    
+    Gateway Does NOT Handle:
+    - Business logic
+    - Tax calculations
+    - Data processing
+    
+    These are delegated to backend systems accessed via System APIs.
+    -->
+
+    <!-- Load configuration properties -->
+    <configuration-properties file="config/config.properties" />
+
+    <!-- Global Configuration -->
+    <configuration defaultResponseTimeout="${gateway.timeout}" 
+                   defaultTransactionTimeout="${gateway.timeout}" />
+
+</mule>
