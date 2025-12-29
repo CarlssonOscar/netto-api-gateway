@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!-- 
+    ========================================
+    SYSTEM API LAYER
+    ========================================
+    
+    This layer provides placeholders for backend system integrations.
+    In a real implementation, these would connect to:
+    - Database systems
+    - Legacy systems
+    - External services
+    - ERP systems
+    
+    Responsibilities:
+    - Abstract backend system complexity
+    - Provide standardized interfaces to backend systems
+    - Handle system-specific protocols and transformations
+    
+    Note: This layer is NOT exposed externally. Only Process APIs can call System APIs.
+    
+    IMPORTANT: Business logic and tax calculations would be implemented in the actual
+    backend systems, NOT in this gateway. The System APIs are just integration points.
+    -->
+
+    <!-- HTTP Listener Configuration for System API -->
+    <http:listener-config name="system-api-httpListenerConfig">
+        <http:listener-connection host="${system.api.host}" port="${system.api.port}" />
+    </http:listener-config>
+
+    <!-- System API Main Flow -->
+    <flow name="system-api-main">
+        <http:listener config-ref="system-api-httpListenerConfig" 
+                       path="/system/api/*" 
+                       allowedMethods="POST">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:body>#[payload]</http:body>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+            </http:error-response>
+        </http:listener>
+        
+        <choice>
+            <when expression="#[attributes.requestPath contains '/employee/get']">
+                <flow-ref name="system-get-employee" />
+            </when>
+            <when expression="#[attributes.requestPath contains '/salary/calculate']">
+                <flow-ref name="system-calculate-salary" />
+            </when>
+            <otherwise>
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "NOT_FOUND",
+    message: "System API endpoint not found",
+    timestamp: now()
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </otherwise>
+        </choice>
+        
+        <error-handler>
+            <on-error-propagate type="ANY">
+                <logger level="ERROR" message="Error in System API: #[error.description]" />
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "SYSTEM_ERROR",
+    message: error.description,
+    timestamp: now()
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">500</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- 
+    ========================================
+    PLACEHOLDER: Get Employee Data
+    ========================================
+    
+    In a real implementation, this would:
+    - Connect to HR database or system
+    - Retrieve employee information
+    - Handle authentication and authorization
+    
+    For this gateway design, it returns mock data.
+    -->
+    <flow name="system-get-employee">
+        <logger level="INFO" message="System API: Getting employee data for: #[payload.employeeId]" />
+        
+        <!-- PLACEHOLDER: Replace with actual backend system call -->
+        <!-- Example: Database query, REST API call, SOAP service, etc. -->
+        
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    // PLACEHOLDER RESPONSE
+    // In real implementation, this data would come from backend HR system
+    employeeId: payload.employeeId,
+    firstName: "John",
+    lastName: "Doe",
+    department: "Engineering",
+    position: "Senior Developer",
+    status: "ACTIVE",
+    hireDate: "2020-01-15",
+    taxBracket: "STANDARD"
+    // Note: Tax calculations would be done in the backend system,
+    // not in this gateway
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <logger level="INFO" message="System API: Returning employee data" />
+    </flow>
+
+    <!-- 
+    ========================================
+    PLACEHOLDER: Calculate Salary
+    ========================================
+    
+    In a real implementation, this would:
+    - Call backend payroll/finance system
+    - Backend system would perform actual business logic
+    - Backend system would calculate taxes, deductions, etc.
+    
+    For this gateway design, it returns mock calculation.
+    
+    IMPORTANT: Business logic including tax calculations belongs in the
+    backend system, NOT in this gateway. This is just an integration point.
+    -->
+    <flow name="system-calculate-salary">
+        <logger level="INFO" message="System API: Calculating salary for employee: #[payload.employeeId]" />
+        
+        <!-- PLACEHOLDER: Replace with actual backend system call -->
+        <!-- Example: Call to payroll system, finance API, etc. -->
+        
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    // PLACEHOLDER RESPONSE
+    // In real implementation, this calculation would be done by backend system
+    // Backend system would handle:
+    // - Tax calculations
+    // - Benefit deductions
+    // - Other payroll business logic
+    
+    employeeId: payload.employeeId,
+    grossSalary: payload.baseSalary,
+    netSalary: payload.baseSalary * 0.75,  // Mock calculation - 25% deductions
+    currency: payload.currency,
+    
+    // These details would come from backend system
+    deductions: {
+        taxes: payload.baseSalary * 0.20,     // 20% - calculated by backend
+        insurance: payload.baseSalary * 0.03,  // 3% - calculated by backend
+        retirement: payload.baseSalary * 0.02  // 2% - calculated by backend
+        // All business logic done in backend, not gateway
+    },
+    
+    status: "SUCCESS",
+    calculatedBy: "BACKEND_PAYROLL_SYSTEM"  // Indicates calculation done externally
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <logger level="INFO" message="System API: Returning salary calculation" />
+        
+        <!-- 
+        IMPLEMENTATION NOTE:
+        ===================
+        To connect to real backend system, replace the transform above with:
+        
+        1. Database connector (for SQL databases):
+           <db:select config-ref="Database_Config">
+               <db:sql>SELECT * FROM calculate_salary(:employeeId, :baseSalary)</db:sql>
+           </db:select>
+        
+        2. HTTP connector (for REST APIs):
+           <http:request config-ref="Backend_API_Config" 
+                         path="/payroll/calculate" 
+                         method="POST">
+               <http:body>#[payload]</http:body>
+           </http:request>
+        
+        3. Web Service connector (for SOAP services):
+           <ws:consumer config-ref="Payroll_Service" 
+                        operation="CalculateSalary">
+               <ws:message>#[payload]</ws:message>
+           </ws:consumer>
+        
+        4. JMS connector (for message queues):
+           <jms:publish config-ref="JMS_Config" destination="salary.calculation.queue">
+               <jms:message>#[payload]</jms:message>
+           </jms:publish>
+        -->
+    </flow>
+
+</mule>

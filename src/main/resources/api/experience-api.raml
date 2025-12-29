@@ -1,0 +1,120 @@
+#%RAML 1.0
+title: Netto Experience API
+version: v1
+baseUri: https://api.netto.com/gateway/{version}
+protocols: [HTTPS]
+
+documentation:
+  - title: Gateway API
+    content: |
+      This is the Experience API layer - the public entry point for all client requests.
+      It handles request validation, response transformation, and routing.
+
+types:
+  SalaryCalculationRequest:
+    type: object
+    properties:
+      employeeId:
+        type: string
+        required: true
+        description: Unique identifier for the employee
+        example: "EMP001"
+      baseSalary:
+        type: number
+        required: true
+        description: Base salary amount
+        example: 50000
+      currency:
+        type: string
+        required: true
+        pattern: ^[A-Z]{3}$
+        description: ISO 4217 currency code
+        example: "USD"
+      
+  SalaryCalculationResponse:
+    type: object
+    properties:
+      employeeId:
+        type: string
+        description: Unique identifier for the employee
+      netSalary:
+        type: number
+        description: Calculated net salary after all deductions
+      grossSalary:
+        type: number
+        description: Gross salary before deductions
+      currency:
+        type: string
+        description: ISO 4217 currency code
+      calculationDate:
+        type: datetime
+        description: Timestamp when calculation was performed
+      status:
+        type: string
+        enum: [SUCCESS, FAILED]
+        description: Status of the calculation
+      message:
+        type: string
+        description: Additional information or error message
+
+  ErrorResponse:
+    type: object
+    properties:
+      error:
+        type: string
+        description: Error code
+      message:
+        type: string
+        description: Human-readable error message
+      timestamp:
+        type: datetime
+        description: When the error occurred
+
+/salary:
+  /calculate:
+    post:
+      description: Calculate net salary for an employee
+      body:
+        application/json:
+          type: SalaryCalculationRequest
+          example: |
+            {
+              "employeeId": "EMP001",
+              "baseSalary": 50000,
+              "currency": "USD"
+            }
+      responses:
+        200:
+          body:
+            application/json:
+              type: SalaryCalculationResponse
+              example: |
+                {
+                  "employeeId": "EMP001",
+                  "netSalary": 37500,
+                  "grossSalary": 50000,
+                  "currency": "USD",
+                  "calculationDate": "2024-01-15T10:30:00Z",
+                  "status": "SUCCESS",
+                  "message": "Salary calculated successfully"
+                }
+        400:
+          body:
+            application/json:
+              type: ErrorResponse
+              example: |
+                {
+                  "error": "VALIDATION_ERROR",
+                  "message": "Invalid request: baseSalary must be a positive number",
+                  "timestamp": "2024-01-15T10:30:00Z"
+                }
+        500:
+          body:
+            application/json:
+              type: ErrorResponse
+              example: |
+                {
+                  "error": "INTERNAL_ERROR",
+                  "message": "An error occurred while processing the request",
+                  "timestamp": "2024-01-15T10:30:00Z"
+                }
