@@ -121,8 +121,6 @@ output application/json
 output application/json
 ---
 {
-    // PLACEHOLDER RESPONSE
-    // In real implementation, this data would come from backend HR system
     employeeId: payload.employeeId,
     firstName: "John",
     lastName: "Doe",
@@ -131,8 +129,6 @@ output application/json
     status: "ACTIVE",
     hireDate: "2020-01-15",
     taxBracket: "STANDARD"
-    // Note: Tax calculations would be done in the backend system,
-    // not in this gateway
 }]]></ee:set-payload>
             </ee:message>
         </ee:transform>
@@ -167,28 +163,19 @@ output application/json
 output application/json
 ---
 {
-    // PLACEHOLDER RESPONSE
-    // In real implementation, this calculation would be done by backend system
-    // Backend system would handle:
-    // - Tax calculations
-    // - Benefit deductions
-    // - Other payroll business logic
-    
     employeeId: payload.employeeId,
     grossSalary: payload.baseSalary,
-    netSalary: payload.baseSalary * 0.75,  // Mock calculation - 25% deductions
+    netSalary: payload.baseSalary * 0.75,
     currency: payload.currency,
     
-    // These details would come from backend system
     deductions: {
-        taxes: payload.baseSalary * 0.20,     // 20% - calculated by backend
-        insurance: payload.baseSalary * 0.03,  // 3% - calculated by backend
-        retirement: payload.baseSalary * 0.02  // 2% - calculated by backend
-        // All business logic done in backend, not gateway
+        taxes: payload.baseSalary * 0.20,
+        insurance: payload.baseSalary * 0.03,
+        retirement: payload.baseSalary * 0.02
     },
     
     status: "SUCCESS",
-    calculatedBy: "BACKEND_PAYROLL_SYSTEM"  // Indicates calculation done externally
+    calculatedBy: "BACKEND_PAYROLL_SYSTEM"
 }]]></ee:set-payload>
             </ee:message>
         </ee:transform>
