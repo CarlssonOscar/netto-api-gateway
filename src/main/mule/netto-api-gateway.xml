@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:schemaLocation="
-        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
 
     <!-- 
     ========================================
@@ -23,7 +25,7 @@
        - NOT directly accessible from external clients
     
     3. SYSTEM API (Integration Layer) - Port 8083
-       - Provides placeholders for backend system integration
+       - Connects to backend Spring Boot API (port 8080)
        - Abstracts backend complexity
        - NOT directly accessible from external clients
     
@@ -46,5 +48,15 @@
     <!-- Global Configuration -->
     <configuration defaultResponseTimeout="${gateway.timeout}" 
                    defaultTransactionTimeout="${gateway.timeout}" />
+
+    <!-- Backend API HTTP Request Configuration -->
+    <http:request-config name="backend-api-httpRequestConfig">
+        <http:request-connection 
+            host="${backend.api.host}" 
+            port="${backend.api.port}" 
+            protocol="HTTP"
+            connectionTimeout="${backend.api.connection.timeout}"
+            responseTimeout="${backend.api.response.timeout}"/>
+    </http:request-config>
 
 </mule>

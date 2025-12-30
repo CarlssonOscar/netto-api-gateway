@@ -17,10 +17,16 @@
     
     This is the public-facing API Gateway - the only entry point for external clients.
     
+    Endpoints:
+    - POST /tax/calculate - Calculate net salary with Swedish tax breakdown
+    - GET /regions - List all Swedish regions (län)
+    - GET /municipalities - List all municipalities (kommuner)
+    - GET /municipalities/by-region/{regionId} - List municipalities in a region
+    - GET /municipalities/{id} - Get a specific municipality
+    
     Responsibilities:
     - Request validation against RAML specification
     - Routing requests to Process API
-    - Response transformation
     - Error handling
     
     Does NOT contain:
@@ -114,7 +120,44 @@ output application/json
                     </ee:variables>
                 </ee:transform>
             </on-error-propagate>
+            <on-error-propagate type="HTTP:TIMEOUT">
+                <logger level="ERROR" message="Timeout calling Process API" />
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "TIMEOUT_ERROR",
+    message: "Request to backend service timed out",
+    timestamp: now()
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">504</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="HTTP:CONNECTIVITY">
+                <logger level="ERROR" message="Connectivity error calling Process API" />
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "CONNECTIVITY_ERROR",
+    message: "Unable to connect to backend service",
+    timestamp: now()
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">503</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
             <on-error-propagate type="ANY">
+                <logger level="ERROR" message="Unexpected error in Experience API: #[error.description]" />
                 <ee:transform>
                     <ee:message>
                         <ee:set-payload><![CDATA[%dw 2.0
@@ -134,95 +177,88 @@ output application/json
         </error-handler>
     </flow>
 
-    <!-- POST /salary/calculate Implementation -->
-    <flow name="post:\salary\calculate:experience-api-config">
-        <!-- Store original request for logging/tracking -->
-        <set-variable variableName="originalRequest" value="#[payload]" />
-        
-        <logger level="INFO" message="Gateway received salary calculation request for employee: #[payload.employeeId]" />
+    <!-- ========================================
+         TAX CALCULATION ENDPOINT
+         ======================================== -->
+    
+    <!-- POST /tax/calculate -->
+    <flow name="post:\tax\calculate:application\json:experience-api-config">
+        <logger level="INFO" message="Gateway received tax calculation request" />
         
         <!-- Route to Process API -->
-        <flow-ref name="route-to-process-api" />
-        
-        <!-- Transform response from Process API to Experience API format -->
-        <flow-ref name="transform-salary-response" />
-        
-        <logger level="INFO" message="Gateway returning salary calculation response for employee: #[payload.employeeId]" />
-    </flow>
-
-    <!-- Routing Sub-Flow: Routes requests to Process API -->
-    <sub-flow name="route-to-process-api">
-        <logger level="INFO" message="Routing request to Process API" />
-        
         <http:request method="POST" 
                       config-ref="process-api-requestConfig" 
-                      path="${process.api.basePath}/salary/calculate"
+                      path="${process.api.basePath}/tax/calculate"
                       responseTimeout="${gateway.timeout}">
             <http:body><![CDATA[#[payload]]]></http:body>
             <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
         </http:request>
         
-        <error-handler>
-            <on-error-propagate type="HTTP:TIMEOUT">
-                <logger level="ERROR" message="Timeout calling Process API" />
-                <ee:transform>
-                    <ee:message>
-                        <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-    error: "TIMEOUT_ERROR",
-    message: "Request to Process API timed out",
-    timestamp: now()
-}]]></ee:set-payload>
-                    </ee:message>
-                    <ee:variables>
-                        <ee:set-variable variableName="httpStatus">504</ee:set-variable>
-                    </ee:variables>
-                </ee:transform>
-            </on-error-propagate>
-            <on-error-propagate type="HTTP:CONNECTIVITY">
-                <logger level="ERROR" message="Connectivity error calling Process API" />
-                <ee:transform>
-                    <ee:message>
-                        <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-    error: "CONNECTIVITY_ERROR",
-    message: "Unable to connect to Process API",
-    timestamp: now()
-}]]></ee:set-payload>
-                    </ee:message>
-                    <ee:variables>
-                        <ee:set-variable variableName="httpStatus">503</ee:set-variable>
-                    </ee:variables>
-                </ee:transform>
-            </on-error-propagate>
-        </error-handler>
-    </sub-flow>
+        <logger level="INFO" message="Gateway returning tax calculation response" />
+    </flow>
 
-    <!-- Response Transformation Sub-Flow -->
-    <sub-flow name="transform-salary-response">
-        <logger level="INFO" message="Transforming response for client" />
+    <!-- ========================================
+         REGION ENDPOINTS
+         ======================================== -->
+    
+    <!-- GET /regions -->
+    <flow name="get:\regions:experience-api-config">
+        <logger level="INFO" message="Gateway received request for all regions" />
         
-        <!-- Transform Process API response to Experience API format -->
-        <ee:transform>
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-    employeeId: payload.employeeId,
-    netSalary: payload.netSalary,
-    grossSalary: payload.grossSalary,
-    currency: payload.currency,
-    calculationDate: payload.calculationDate,
-    status: payload.status default "SUCCESS",
-    message: payload.message default "Salary calculated successfully"
-}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
-    </sub-flow>
+        <http:request method="GET" 
+                      config-ref="process-api-requestConfig" 
+                      path="${process.api.basePath}/regions"
+                      responseTimeout="${gateway.timeout}">
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
+        </http:request>
+        
+        <logger level="INFO" message="Gateway returning regions list" />
+    </flow>
+
+    <!-- ========================================
+         MUNICIPALITY ENDPOINTS
+         ======================================== -->
+    
+    <!-- GET /municipalities -->
+    <flow name="get:\municipalities:experience-api-config">
+        <logger level="INFO" message="Gateway received request for all municipalities" />
+        
+        <http:request method="GET" 
+                      config-ref="process-api-requestConfig" 
+                      path="${process.api.basePath}/municipalities"
+                      responseTimeout="${gateway.timeout}">
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
+        </http:request>
+        
+        <logger level="INFO" message="Gateway returning municipalities list" />
+    </flow>
+
+    <!-- GET /municipalities/by-region/{regionId} -->
+    <flow name="get:\municipalities\by-region\(regionId):experience-api-config">
+        <logger level="INFO" message="Gateway received request for municipalities in region: #[attributes.uriParams.regionId]" />
+        
+        <http:request method="GET" 
+                      config-ref="process-api-requestConfig" 
+                      path='#["${process.api.basePath}/municipalities/by-region/" ++ attributes.uriParams.regionId]'
+                      responseTimeout="${gateway.timeout}">
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
+        </http:request>
+        
+        <logger level="INFO" message="Gateway returning municipalities for region" />
+    </flow>
+
+    <!-- GET /municipalities/{id} -->
+    <flow name="get:\municipalities\(id):experience-api-config">
+        <logger level="INFO" message="Gateway received request for municipality: #[attributes.uriParams.id]" />
+        
+        <http:request method="GET" 
+                      config-ref="process-api-requestConfig" 
+                      path='#["${process.api.basePath}/municipalities/" ++ attributes.uriParams.id]'
+                      responseTimeout="${gateway.timeout}">
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
+        </http:request>
+        
+        <logger level="INFO" message="Gateway returning municipality details" />
+    </flow>
 
 </mule>

@@ -13,22 +13,24 @@
     SYSTEM API LAYER
     ========================================
     
-    This layer provides placeholders for backend system integrations.
-    In a real implementation, these would connect to:
-    - Database systems
-    - Legacy systems
-    - External services
-    - ERP systems
+    This layer integrates with the backend Spring Boot API running on port 8080.
+    
+    Backend endpoints called:
+    - POST /api/v1/tax/calculate - Swedish net salary calculation
+    - GET /api/v1/regions - List all regions
+    - GET /api/v1/municipalities - List all municipalities
+    - GET /api/v1/municipalities/by-region/{regionId} - Municipalities by region
+    - GET /api/v1/municipalities/{id} - Municipality by ID
     
     Responsibilities:
-    - Abstract backend system complexity
-    - Provide standardized interfaces to backend systems
-    - Handle system-specific protocols and transformations
+    - Connect to backend Spring Boot API
+    - Pass through requests/responses (no transformation needed)
+    - Handle backend-specific errors
     
     Note: This layer is NOT exposed externally. Only Process APIs can call System APIs.
     
-    IMPORTANT: Business logic and tax calculations would be implemented in the actual
-    backend systems, NOT in this gateway. The System APIs are just integration points.
+    IMPORTANT: Business logic and tax calculations are in the backend Spring Boot API,
+    NOT in this gateway. The System APIs are just integration points.
     -->
 
     <!-- HTTP Listener Configuration for System API -->
@@ -39,8 +41,7 @@
     <!-- System API Main Flow -->
     <flow name="system-api-main">
         <http:listener config-ref="system-api-httpListenerConfig" 
-                       path="/system/api/*" 
-                       allowedMethods="POST">
+                       path="/system/api/*">
             <http:response statusCode="#[vars.httpStatus default 200]">
                 <http:body>#[payload]</http:body>
             </http:response>
@@ -50,12 +51,35 @@
         </http:listener>
         
         <choice>
-            <when expression="#[attributes.requestPath contains '/employee/get']">
-                <flow-ref name="system-get-employee" />
+            <!-- Tax Calculation -->
+            <when expression="#[attributes.requestPath contains '/tax/calculate' and attributes.method == 'POST']">
+                <flow-ref name="system-calculate-tax" />
             </when>
-            <when expression="#[attributes.requestPath contains '/salary/calculate']">
-                <flow-ref name="system-calculate-salary" />
+            
+            <!-- Regions -->
+            <when expression="#[attributes.requestPath contains '/regions' and attributes.method == 'GET']">
+                <flow-ref name="system-get-regions" />
             </when>
+            
+            <!-- Municipalities by Region -->
+            <when expression="#[attributes.requestPath contains '/municipalities/by-region/' and attributes.method == 'GET']">
+                <set-variable variableName="regionId" 
+                              value="#[attributes.requestPath substringAfter '/municipalities/by-region/']" />
+                <flow-ref name="system-get-municipalities-by-region" />
+            </when>
+            
+            <!-- Municipality by ID -->
+            <when expression="#[attributes.requestPath matches /.*\/municipalities\/[^\/]+$/ and !(attributes.requestPath contains '/by-region/') and attributes.method == 'GET']">
+                <set-variable variableName="municipalityId" 
+                              value="#[attributes.requestPath substringAfter '/municipalities/']" />
+                <flow-ref name="system-get-municipality-by-id" />
+            </when>
+            
+            <!-- All Municipalities -->
+            <when expression="#[attributes.requestPath endsWith '/municipalities' and attributes.method == 'GET']">
+                <flow-ref name="system-get-municipalities" />
+            </when>
+            
             <otherwise>
                 <ee:transform>
                     <ee:message>
@@ -64,7 +88,7 @@ output application/json
 ---
 {
     error: "NOT_FOUND",
-    message: "System API endpoint not found",
+    message: "System API endpoint not found: " ++ attributes.requestPath,
     timestamp: now()
 }]]></ee:set-payload>
                     </ee:message>
@@ -76,6 +100,42 @@ output application/json
         </choice>
         
         <error-handler>
+            <on-error-propagate type="HTTP:CONNECTIVITY">
+                <logger level="ERROR" message="Backend API not available: #[error.description]" />
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "BACKEND_UNAVAILABLE",
+    message: "Backend service is temporarily unavailable",
+    timestamp: now()
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">503</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="HTTP:TIMEOUT">
+                <logger level="ERROR" message="Backend API timeout: #[error.description]" />
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    error: "BACKEND_TIMEOUT",
+    message: "Backend service timed out",
+    timestamp: now()
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">504</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
             <on-error-propagate type="ANY">
                 <logger level="ERROR" message="Error in System API: #[error.description]" />
                 <ee:transform>
@@ -97,119 +157,78 @@ output application/json
         </error-handler>
     </flow>
 
-    <!-- 
-    ========================================
-    PLACEHOLDER: Get Employee Data
-    ========================================
+    <!-- ========================================
+         TAX CALCULATION - Backend Integration
+         ======================================== -->
     
-    In a real implementation, this would:
-    - Connect to HR database or system
-    - Retrieve employee information
-    - Handle authentication and authorization
-    
-    For this gateway design, it returns mock data.
-    -->
-    <flow name="system-get-employee">
-        <logger level="INFO" message="System API: Getting employee data for: #[payload.employeeId]" />
+    <flow name="system-calculate-tax">
+        <logger level="INFO" message="System API: Calling backend tax calculation" />
         
-        <!-- PLACEHOLDER: Replace with actual backend system call -->
-        <!-- Example: Database query, REST API call, SOAP service, etc. -->
+        <!-- Call backend Spring Boot API -->
+        <http:request method="POST" 
+                      config-ref="backend-api-httpRequestConfig" 
+                      path="${backend.api.basePath}/tax/calculate">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+        </http:request>
         
-        <ee:transform>
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-    employeeId: payload.employeeId,
-    firstName: "John",
-    lastName: "Doe",
-    department: "Engineering",
-    position: "Senior Developer",
-    status: "ACTIVE",
-    hireDate: "2020-01-15",
-    taxBracket: "STANDARD"
-}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
-        
-        <logger level="INFO" message="System API: Returning employee data" />
+        <logger level="INFO" message="System API: Received tax calculation from backend" />
     </flow>
 
-    <!-- 
-    ========================================
-    PLACEHOLDER: Calculate Salary
-    ========================================
+    <!-- ========================================
+         REGIONS - Backend Integration
+         ======================================== -->
     
-    In a real implementation, this would:
-    - Call backend payroll/finance system
-    - Backend system would perform actual business logic
-    - Backend system would calculate taxes, deductions, etc.
+    <flow name="system-get-regions">
+        <logger level="INFO" message="System API: Calling backend get regions" />
+        
+        <http:request method="GET" 
+                      config-ref="backend-api-httpRequestConfig" 
+                      path="${backend.api.basePath}/regions">
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
+        </http:request>
+        
+        <logger level="INFO" message="System API: Received regions from backend" />
+    </flow>
+
+    <!-- ========================================
+         MUNICIPALITIES - Backend Integration
+         ======================================== -->
     
-    For this gateway design, it returns mock calculation.
-    
-    IMPORTANT: Business logic including tax calculations belongs in the
-    backend system, NOT in this gateway. This is just an integration point.
-    -->
-    <flow name="system-calculate-salary">
-        <logger level="INFO" message="System API: Calculating salary for employee: #[payload.employeeId]" />
+    <flow name="system-get-municipalities">
+        <logger level="INFO" message="System API: Calling backend get all municipalities" />
         
-        <!-- PLACEHOLDER: Replace with actual backend system call -->
-        <!-- Example: Call to payroll system, finance API, etc. -->
+        <http:request method="GET" 
+                      config-ref="backend-api-httpRequestConfig" 
+                      path="${backend.api.basePath}/municipalities">
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
+        </http:request>
         
-        <ee:transform>
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-    employeeId: payload.employeeId,
-    grossSalary: payload.baseSalary,
-    netSalary: payload.baseSalary * 0.75,
-    currency: payload.currency,
-    
-    deductions: {
-        taxes: payload.baseSalary * 0.20,
-        insurance: payload.baseSalary * 0.03,
-        retirement: payload.baseSalary * 0.02
-    },
-    
-    status: "SUCCESS",
-    calculatedBy: "BACKEND_PAYROLL_SYSTEM"
-}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
+        <logger level="INFO" message="System API: Received municipalities from backend" />
+    </flow>
+
+    <flow name="system-get-municipalities-by-region">
+        <logger level="INFO" message="System API: Calling backend get municipalities for region: #[vars.regionId]" />
         
-        <logger level="INFO" message="System API: Returning salary calculation" />
+        <http:request method="GET" 
+                      config-ref="backend-api-httpRequestConfig" 
+                      path='#["${backend.api.basePath}/municipalities/by-region/" ++ vars.regionId]'>
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
+        </http:request>
         
-        <!-- 
-        IMPLEMENTATION NOTE:
-        ===================
-        To connect to real backend system, replace the transform above with:
+        <logger level="INFO" message="System API: Received municipalities by region from backend" />
+    </flow>
+
+    <flow name="system-get-municipality-by-id">
+        <logger level="INFO" message="System API: Calling backend get municipality: #[vars.municipalityId]" />
         
-        1. Database connector (for SQL databases):
-           <db:select config-ref="Database_Config">
-               <db:sql>SELECT * FROM calculate_salary(:employeeId, :baseSalary)</db:sql>
-           </db:select>
+        <http:request method="GET" 
+                      config-ref="backend-api-httpRequestConfig" 
+                      path='#["${backend.api.basePath}/municipalities/" ++ vars.municipalityId]'>
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
+        </http:request>
         
-        2. HTTP connector (for REST APIs):
-           <http:request config-ref="Backend_API_Config" 
-                         path="/payroll/calculate" 
-                         method="POST">
-               <http:body>#[payload]</http:body>
-           </http:request>
-        
-        3. Web Service connector (for SOAP services):
-           <ws:consumer config-ref="Payroll_Service" 
-                        operation="CalculateSalary">
-               <ws:message>#[payload]</ws:message>
-           </ws:consumer>
-        
-        4. JMS connector (for message queues):
-           <jms:publish config-ref="JMS_Config" destination="salary.calculation.queue">
-               <jms:message>#[payload]</jms:message>
-           </jms:publish>
-        -->
+        <logger level="INFO" message="System API: Received municipality from backend" />
     </flow>
 
 </mule>

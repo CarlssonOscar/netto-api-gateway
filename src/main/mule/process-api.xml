@@ -15,15 +15,20 @@
     
     This layer orchestrates business processes and coordinates calls to System APIs.
     
+    Endpoints handled:
+    - POST /tax/calculate - Orchestrate tax calculation
+    - GET /regions - Get all regions
+    - GET /municipalities - Get all municipalities
+    - GET /municipalities/by-region/{regionId} - Get municipalities by region
+    - GET /municipalities/{id} - Get municipality by ID
+    
     Responsibilities:
-    - Orchestrate calls to multiple System APIs
-    - Aggregate and combine data from different sources
-    - Handle process-level logic and sequencing
+    - Orchestrate calls to System APIs
+    - Pass through data (no transformation needed as backend format matches)
     
     Does NOT contain:
-    - Business logic (deferred to System APIs)
+    - Business logic
     - Tax calculations
-    - Data transformations beyond aggregation
     
     Note: This layer is not directly exposed to external clients.
     -->
@@ -41,8 +46,7 @@
     <!-- Process API Main Flow -->
     <flow name="process-api-main">
         <http:listener config-ref="process-api-httpListenerConfig" 
-                       path="/process/api/*" 
-                       allowedMethods="POST">
+                       path="/process/api/*">
             <http:response statusCode="#[vars.httpStatus default 200]">
                 <http:body>#[payload]</http:body>
             </http:response>
@@ -52,9 +56,35 @@
         </http:listener>
         
         <choice>
-            <when expression="#[attributes.requestPath contains '/salary/calculate']">
-                <flow-ref name="process-salary-calculation" />
+            <!-- Tax Calculation -->
+            <when expression="#[attributes.requestPath contains '/tax/calculate' and attributes.method == 'POST']">
+                <flow-ref name="process-tax-calculation" />
             </when>
+            
+            <!-- Regions -->
+            <when expression="#[attributes.requestPath contains '/regions' and attributes.method == 'GET']">
+                <flow-ref name="process-get-regions" />
+            </when>
+            
+            <!-- Municipalities by Region -->
+            <when expression="#[attributes.requestPath contains '/municipalities/by-region/' and attributes.method == 'GET']">
+                <set-variable variableName="regionId" 
+                              value="#[attributes.requestPath substringAfter '/municipalities/by-region/']" />
+                <flow-ref name="process-get-municipalities-by-region" />
+            </when>
+            
+            <!-- Municipality by ID -->
+            <when expression="#[attributes.requestPath matches /.*\/municipalities\/[^\/]+$/ and !(attributes.requestPath contains '/by-region/') and attributes.method == 'GET']">
+                <set-variable variableName="municipalityId" 
+                              value="#[attributes.requestPath substringAfter '/municipalities/']" />
+                <flow-ref name="process-get-municipality-by-id" />
+            </when>
+            
+            <!-- All Municipalities -->
+            <when expression="#[attributes.requestPath endsWith '/municipalities' and attributes.method == 'GET']">
+                <flow-ref name="process-get-municipalities" />
+            </when>
+            
             <otherwise>
                 <ee:transform>
                     <ee:message>
@@ -63,7 +93,7 @@ output application/json
 ---
 {
     error: "NOT_FOUND",
-    message: "Process API endpoint not found",
+    message: "Process API endpoint not found: " ++ attributes.requestPath,
     timestamp: now()
 }]]></ee:set-payload>
                     </ee:message>
@@ -96,152 +126,83 @@ output application/json
         </error-handler>
     </flow>
 
-    <!-- Process Salary Calculation Flow -->
-    <flow name="process-salary-calculation">
-        <logger level="INFO" message="Process API orchestrating salary calculation for employee: #[payload.employeeId]" />
+    <!-- ========================================
+         TAX CALCULATION ORCHESTRATION
+         ======================================== -->
+    
+    <flow name="process-tax-calculation">
+        <logger level="INFO" message="Process API orchestrating tax calculation" />
         
-        <!-- Store request data -->
-        <set-variable variableName="employeeId" value="#[payload.employeeId]" />
-        <set-variable variableName="baseSalary" value="#[payload.baseSalary]" />
-        <set-variable variableName="currency" value="#[payload.currency]" />
+        <!-- Call System API for tax calculation -->
+        <http:request method="POST" 
+                      config-ref="system-api-requestConfig" 
+                      path="${system.api.basePath}/tax/calculate"
+                      responseTimeout="${gateway.timeout}">
+            <http:body><![CDATA[#[payload]]]></http:body>
+            <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+        </http:request>
         
-        <!-- Call System API to get employee data (placeholder) -->
-        <flow-ref name="call-employee-system-api" />
-        
-        <!-- Store employee data for later use -->
-        <set-variable variableName="employeeData" value="#[payload]" />
-        
-        <!-- Call System API to calculate salary (placeholder) -->
-        <flow-ref name="call-salary-calculation-system-api" />
-        
-        <!-- Store calculation result -->
-        <set-variable variableName="salaryCalculation" value="#[payload]" />
-        
-        <!-- Aggregate results from multiple System API calls -->
-        <flow-ref name="aggregate-salary-results" />
-        
-        <logger level="INFO" message="Process API completed salary calculation orchestration" />
+        <logger level="INFO" message="Process API completed tax calculation orchestration" />
     </flow>
 
-    <!-- Sub-flow: Call Employee System API -->
-    <sub-flow name="call-employee-system-api">
-        <logger level="INFO" message="Calling Employee System API for employeeId: #[vars.employeeId]" />
+    <!-- ========================================
+         REGION ORCHESTRATION
+         ======================================== -->
+    
+    <flow name="process-get-regions">
+        <logger level="INFO" message="Process API orchestrating get regions" />
         
-        <!-- Prepare request for System API -->
-        <ee:transform>
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-    employeeId: vars.employeeId
-}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
-        
-        <!-- Placeholder: In real implementation, this would call actual System API -->
-        <!-- For now, return mock data -->
-        <http:request method="POST" 
+        <http:request method="GET" 
                       config-ref="system-api-requestConfig" 
-                      path="${system.api.basePath}/employee/get"
+                      path="${system.api.basePath}/regions"
                       responseTimeout="${gateway.timeout}">
-            <http:body><![CDATA[#[payload]]]></http:body>
-            <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
         </http:request>
         
-        <logger level="INFO" message="Received employee data from System API" />
-        
-        <error-handler>
-            <on-error-continue type="ANY">
-                <logger level="WARN" message="System API call failed, using mock data" />
-                <!-- Return mock data if System API is not available -->
-                <ee:transform>
-                    <ee:message>
-                        <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-    employeeId: vars.employeeId,
-    status: "ACTIVE",
-    department: "Engineering"
-}]]></ee:set-payload>
-                    </ee:message>
-                </ee:transform>
-            </on-error-continue>
-        </error-handler>
-    </sub-flow>
+        <logger level="INFO" message="Process API completed get regions" />
+    </flow>
 
-    <!-- Sub-flow: Call Salary Calculation System API -->
-    <sub-flow name="call-salary-calculation-system-api">
-        <logger level="INFO" message="Calling Salary Calculation System API" />
+    <!-- ========================================
+         MUNICIPALITY ORCHESTRATION
+         ======================================== -->
+    
+    <flow name="process-get-municipalities">
+        <logger level="INFO" message="Process API orchestrating get all municipalities" />
         
-        <!-- Prepare request for System API -->
-        <ee:transform>
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-    employeeId: vars.employeeId,
-    baseSalary: vars.baseSalary,
-    currency: vars.currency,
-    employeeData: vars.employeeData
-}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
-        
-        <!-- Placeholder: In real implementation, this would call actual System API -->
-        <http:request method="POST" 
+        <http:request method="GET" 
                       config-ref="system-api-requestConfig" 
-                      path="${system.api.basePath}/salary/calculate"
+                      path="${system.api.basePath}/municipalities"
                       responseTimeout="${gateway.timeout}">
-            <http:body><![CDATA[#[payload]]]></http:body>
-            <http:headers><![CDATA[#[{'Content-Type': 'application/json'}]]]></http:headers>
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
         </http:request>
         
-        <logger level="INFO" message="Received salary calculation from System API" />
-        
-        <error-handler>
-            <on-error-continue type="ANY">
-                <logger level="WARN" message="System API call failed, using mock data" />
-                <!-- Return mock calculation if System API is not available -->
-                <ee:transform>
-                    <ee:message>
-                        <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-    netSalary: vars.baseSalary * 0.75,
-    grossSalary: vars.baseSalary,
-    status: "SUCCESS"
-}]]></ee:set-payload>
-                    </ee:message>
-                </ee:transform>
-            </on-error-continue>
-        </error-handler>
-    </sub-flow>
+        <logger level="INFO" message="Process API completed get municipalities" />
+    </flow>
 
-    <!-- Sub-flow: Aggregate Results -->
-    <sub-flow name="aggregate-salary-results">
-        <logger level="INFO" message="Aggregating salary calculation results" />
+    <flow name="process-get-municipalities-by-region">
+        <logger level="INFO" message="Process API orchestrating get municipalities for region: #[vars.regionId]" />
         
-        <!-- Combine data from multiple System API calls -->
-        <ee:transform>
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{
-    employeeId: vars.employeeId,
-    netSalary: vars.salaryCalculation.netSalary,
-    grossSalary: vars.salaryCalculation.grossSalary,
-    currency: vars.currency,
-    calculationDate: now(),
-    status: vars.salaryCalculation.status default "SUCCESS",
-    message: "Salary calculated successfully"
-}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
-    </sub-flow>
+        <http:request method="GET" 
+                      config-ref="system-api-requestConfig" 
+                      path='#["${system.api.basePath}/municipalities/by-region/" ++ vars.regionId]'
+                      responseTimeout="${gateway.timeout}">
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
+        </http:request>
+        
+        <logger level="INFO" message="Process API completed get municipalities by region" />
+    </flow>
+
+    <flow name="process-get-municipality-by-id">
+        <logger level="INFO" message="Process API orchestrating get municipality: #[vars.municipalityId]" />
+        
+        <http:request method="GET" 
+                      config-ref="system-api-requestConfig" 
+                      path='#["${system.api.basePath}/municipalities/" ++ vars.municipalityId]'
+                      responseTimeout="${gateway.timeout}">
+            <http:headers><![CDATA[#[{'Accept': 'application/json'}]]]></http:headers>
+        </http:request>
+        
+        <logger level="INFO" message="Process API completed get municipality by id" />
+    </flow>
 
 </mule>

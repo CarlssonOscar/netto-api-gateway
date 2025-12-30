@@ -2,6 +2,16 @@
 
 A MuleSoft-based API Gateway implementing a three-tier architecture following MuleSoft best practices.
 
+> **Demo Note**: This gateway is designed but requires MuleSoft Anypoint Studio to run. For demo purposes, connect your frontend directly to the backend API at `http://localhost:8080/api/v1`. The gateway design demonstrates API-led connectivity architecture.
+
+## Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [System Overview](docs/system-overview.md) | Architecture, design decisions, how the gateway works |
+| [Frontend Integration Guide](docs/frontend-integration-guide.md) | API reference for frontend development |
+| [MuleSoft Integration Guide](docs/mulesoft-integration-guide.md) | Backend API details for gateway implementation |
+
 ## Architecture Overview
 
 This API Gateway implements the **API-Led Connectivity** approach with three distinct API layers:
@@ -53,12 +63,26 @@ This API Gateway implements the **API-Led Connectivity** approach with three dis
 │  • Abstract backend system complexity                   │
 │  • Standardized interfaces to backends                  │
 │                                                         │
-│  Backend systems would contain:                         │
-│  • Business logic                                       │
-│  • Tax calculations                                     │
-│  • Data persistence                                     │
+│  Connects to backend Spring Boot API:                   │
+│  • POST /api/v1/tax/calculate                           │
+│  • GET /api/v1/regions                                  │
+│  • GET /api/v1/municipalities                           │
 │                                                         │
 │  NOT directly accessible from external clients          │
+└─────────────────────────────────────────────────────────┘
+                     │ HTTP
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│              BACKEND API (Spring Boot)                  │
+│                    Port: 8080                           │
+│                                                         │
+│  Responsibilities:                                      │
+│  • Swedish tax calculation (business logic)             │
+│  • Municipality and region data                         │
+│  • Data persistence                                     │
+│                                                         │
+│  For demo: Connect frontend directly here               │
+│  Base URL: http://localhost:8080/api/v1                 │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -67,6 +91,9 @@ This API Gateway implements the **API-Led Connectivity** approach with three dis
 ```
 netto-api-gateway/
 ├── pom.xml                                 # Maven project configuration
+├── docs/
+│   ├── frontend-integration-guide.md       # Frontend API reference
+│   └── mulesoft-integration-guide.md       # Backend API reference
 ├── src/
 │   ├── main/
 │   │   ├── mule/
@@ -94,34 +121,42 @@ netto-api-gateway/
 **Key Features**:
 - RAML-based request validation
 - Automatic error handling for invalid requests
-- Response transformation to client-friendly format
 - Routes all requests to Process API
 - Does NOT contain business logic
 
 **Endpoints**:
-- `POST /gateway/v1/salary/calculate` - Calculate employee net salary
+- `POST /gateway/tax/calculate` - Calculate Swedish net salary with full tax breakdown
+- `GET /gateway/regions` - List all Swedish regions (län)
+- `GET /gateway/municipalities` - List all municipalities (kommuner)
+- `GET /gateway/municipalities/by-region/{regionId}` - Get municipalities in a region
+- `GET /gateway/municipalities/{id}` - Get a specific municipality
 
-**Example Request**:
+**Example Request** (Tax Calculation):
 ```bash
-curl -X POST http://localhost:8081/gateway/v1/salary/calculate \
+curl -X POST http://localhost:8081/gateway/tax/calculate \
   -H "Content-Type: application/json" \
   -d '{
-    "employeeId": "EMP001",
-    "baseSalary": 50000,
-    "currency": "USD"
+    "municipalityId": "550e8400-e29b-41d4-a716-446655440000",
+    "grossMonthlySalary": 50000,
+    "churchMember": false,
+    "isPensioner": false
   }'
 ```
 
 **Example Response**:
 ```json
 {
-  "employeeId": "EMP001",
-  "netSalary": 37500,
-  "grossSalary": 50000,
-  "currency": "USD",
-  "calculationDate": "2024-01-15T10:30:00Z",
-  "status": "SUCCESS",
-  "message": "Salary calculated successfully"
+  "grossMonthlySalary": 50000.00,
+  "grossYearlySalary": 600000.00,
+  "municipalityName": "Umeå",
+  "regionName": "Västerbotten",
+  "monthlyNetSalary": 37889.46,
+  "yearlyNetSalary": 454673.55,
+  "effectiveTaxRate": 24.22,
+  "municipalTax": 121673.53,
+  "regionalTax": 60622.16,
+  "stateTax": 0.00,
+  "jobTaxCredit": 38517.24
 }
 ```
 
@@ -130,38 +165,31 @@ curl -X POST http://localhost:8081/gateway/v1/salary/calculate \
 **Purpose**: Orchestrate business processes and coordinate System API calls.
 
 **Key Features**:
-- Orchestrates calls to multiple System APIs
-- Aggregates data from different sources
-- Handles process-level logic and sequencing
+- Orchestrates calls to System APIs
+- Passes through data (no transformation needed)
 - NOT directly accessible from external clients
 
-**Flow for Salary Calculation**:
+**Flow for Tax Calculation**:
 1. Receives request from Experience API
-2. Calls Employee System API to get employee data
-3. Calls Salary Calculation System API with employee data
-4. Aggregates results from multiple System APIs
-5. Returns aggregated response to Experience API
+2. Calls System API for tax calculation
+3. Returns response to Experience API
 
 ### 3. System API (Port 8083)
 
-**Purpose**: Provide integration placeholders for backend systems.
+**Purpose**: Integrate with the backend Spring Boot API.
 
 **Key Features**:
+- Connects to backend at `http://localhost:8080/api/v1`
 - Abstracts backend system complexity
 - Provides standardized interfaces
-- Contains placeholders for actual backend integration
 - NOT directly accessible from external clients
 
-**Placeholder Endpoints**:
-- `POST /system/api/employee/get` - Get employee data (placeholder)
-- `POST /system/api/salary/calculate` - Calculate salary (placeholder)
-
-**Implementation Notes**:
-The System API contains extensive comments showing how to integrate with:
-- SQL Databases (using Database connector)
-- REST APIs (using HTTP connector)
-- SOAP Web Services (using Web Service connector)
-- Message Queues (using JMS connector)
+**Backend Endpoints Called**:
+- `POST /api/v1/tax/calculate` - Swedish net salary calculation
+- `GET /api/v1/regions` - List all regions
+- `GET /api/v1/municipalities` - List all municipalities
+- `GET /api/v1/municipalities/by-region/{regionId}` - Municipalities by region
+- `GET /api/v1/municipalities/{id}` - Single municipality
 
 ## Configuration
 
@@ -181,6 +209,13 @@ process.api.basePath=/process/api
 system.api.host=localhost
 system.api.port=8083
 system.api.basePath=/system/api
+
+# Backend API Configuration (Spring Boot)
+backend.api.host=localhost
+backend.api.port=8080
+backend.api.basePath=/api/v1
+backend.api.connection.timeout=5000
+backend.api.response.timeout=30000
 
 # API Gateway Configuration
 gateway.timeout=30000
@@ -209,15 +244,20 @@ mvn clean deploy -DmuleDeploy
 
 ## Running the Application
 
-### Option 1: Using Maven
-```bash
-mvn mule:run
+### Option 1: Using Anypoint Studio (Recommended)
+1. Download and install [Anypoint Studio](https://www.mulesoft.com/platform/studio) (free)
+2. Import the project: File → Import → Anypoint Studio → Maven-based Mule Project
+3. Right-click on the project → Run As → Mule Application
+
+### Option 2: Demo Mode (Direct Backend Access)
+For demos and development, skip the gateway and connect directly to the backend:
+
+```
+Backend URL: http://localhost:8080/api/v1
+Swagger UI:  http://localhost:8080/api/v1/swagger-ui.html
 ```
 
-### Option 2: Using Anypoint Studio
-1. Import the project into Anypoint Studio
-2. Right-click on the project
-3. Select "Run As" > "Mule Application"
+See [Frontend Integration Guide](docs/frontend-integration-guide.md) for API details.
 
 ### Option 3: Deploy to CloudHub
 ```bash
@@ -228,34 +268,40 @@ mvn clean deploy -DmuleDeploy \
 
 ## Testing
 
-### Test Salary Calculation
+### Test via Gateway (requires Anypoint Studio)
 
 ```bash
-# Valid request
-curl -X POST http://localhost:8081/gateway/v1/salary/calculate \
+# Calculate net salary
+curl -X POST http://localhost:8081/gateway/tax/calculate \
   -H "Content-Type: application/json" \
   -d '{
-    "employeeId": "EMP001",
-    "baseSalary": 50000,
-    "currency": "USD"
+    "municipalityId": "550e8400-e29b-41d4-a716-446655440000",
+    "grossMonthlySalary": 50000
   }'
 
-# Invalid request (missing required field)
-curl -X POST http://localhost:8081/gateway/v1/salary/calculate \
+# Get all regions
+curl http://localhost:8081/gateway/regions
+
+# Get municipalities in a region
+curl http://localhost:8081/gateway/municipalities/by-region/{regionId}
+```
+
+### Test via Backend Directly (for demos)
+
+```bash
+# Calculate net salary
+curl -X POST http://localhost:8080/api/v1/tax/calculate \
   -H "Content-Type: application/json" \
   -d '{
-    "employeeId": "EMP001",
-    "baseSalary": 50000
+    "municipalityId": "550e8400-e29b-41d4-a716-446655440000",
+    "grossMonthlySalary": 50000
   }'
 
-# Invalid request (negative salary)
-curl -X POST http://localhost:8081/gateway/v1/salary/calculate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "employeeId": "EMP001",
-    "baseSalary": -1000,
-    "currency": "USD"
-  }'
+# Get all regions
+curl http://localhost:8080/api/v1/regions
+
+# Interactive testing
+open http://localhost:8080/api/v1/swagger-ui.html
 ```
 
 ## Key Design Principles
@@ -293,27 +339,16 @@ All business logic, including tax calculations and salary processing, is delegat
 1. **Update RAML specification** (`src/main/resources/api/experience-api.raml`)
 2. **Add flow in Experience API** (`src/main/mule/experience-api.xml`)
 3. **Add orchestration in Process API** (`src/main/mule/process-api.xml`)
-4. **Add System API placeholder** (`src/main/mule/system-api.xml`)
+4. **Add backend call in System API** (`src/main/mule/system-api.xml`)
 
-### Integrating with Backend Systems
+### Connecting to a Different Backend
 
-Replace the placeholder transforms in `system-api.xml` with actual connector calls:
+Update `src/main/resources/config/config.properties`:
 
-**Database Example**:
-```xml
-<db:select config-ref="Database_Config">
-    <db:sql>SELECT * FROM employees WHERE id = :employeeId</db:sql>
-    <db:input-parameters>#[{'employeeId': payload.employeeId}]</db:input-parameters>
-</db:select>
-```
-
-**REST API Example**:
-```xml
-<http:request config-ref="Backend_API_Config" 
-              path="/payroll/calculate" 
-              method="POST">
-    <http:body>#[payload]</http:body>
-</http:request>
+```properties
+backend.api.host=your-backend-host
+backend.api.port=8080
+backend.api.basePath=/api/v1
 ```
 
 ## Error Handling
@@ -348,3 +383,10 @@ Log levels can be configured in Anypoint Studio or CloudHub.
 ## License
 
 This is a sample implementation for educational purposes.
+
+---
+
+## Related Projects
+
+- **NettoApi** - Spring Boot backend with Swedish tax calculation logic
+- **NettoFrontend** - Frontend application (planned)
